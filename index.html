@@ -1,0 +1,416 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>簡易倖存者遊戲 - 強化版</title>
+<style>
+body { margin:0; background:#111; color:#fff; font-family:sans-serif; text-align:center; }
+canvas { background:#222; display:block; margin:0 auto; }
+#ui { position:absolute; top:10px; left:50%; transform:translateX(-50%); }
+button { padding:8px 16px; font-size:16px; margin:5px; }
+.flash { animation: flash 0.2s; }
+@keyframes flash { from { background:#500; } to { background:#222; } }
+
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+#menu {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+</style>
+</head>
+<body>
+<!---
+<div id="ui">
+  <span id="hp">HP:100</span> |
+  <span id="score">Score:0</span><br>
+  <button id="startBtn">開始遊戲</button>
+  <button id="restartBtn" style="display:none;">重新開始</button>
+</div>
+--->
+<div id="hud">
+  <span id="hp"></span> | <span id="score"></span>
+</div>
+
+<div id="menu">
+  <button id="startBtn">開始遊戲</button>
+  <button id="restartBtn" style="display:none;">重新開始</button>
+</div>
+
+<canvas id="game" width="800" height="500"></canvas>
+
+<img id="imgPlayer" src="player.png"  hidden>
+<img id="imgEnemy"  src="enemy.png"   hidden>
+<img id="imgSC30"   src="SC30.png"    hidden>
+<img id="imgSC50"   src="SC50.png"    hidden>
+<img id="imgSC150"  src="SC150.png"   hidden>
+<img id="imgSC300"  src="SC300.png"   hidden>
+<img id="imgSC750"  src="SC750.png"   hidden>
+<img id="imgSC1000" src="SC1000.png"  hidden>
+<img id="imgSC1500" src="SC1500.png"  hidden>
+<img id="imgHeal"   src="Heal.png"    hidden>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const hpUI = document.getElementById("hp");
+const scoreUI = document.getElementById("score");
+const startBtn = document.getElementById("startBtn");
+const restartBtn = document.getElementById("restartBtn");
+
+let running=false, score=0, time=0;
+let player = null, healItem = null, enemies=[], scs=[], keys={}, bullets=[];
+let scFlash = 0;
+let damageFlash=0;
+const SC_LIFETIME = 300; // SC 存在時間（frame），300 ≈ 5 秒
+const SC_VALUES=[30,50,150,300,750,1000,1500];
+
+const imgPlayer  = document.getElementById("imgPlayer");
+const imgEnemy   = document.getElementById("imgEnemy" );
+const imgHeal    = document.getElementById("imgHeal"  );
+const scImages = {
+  30   : document.getElementById("imgSC30"),
+  50   : document.getElementById("imgSC50"),
+  150  : document.getElementById("imgSC150"),
+  300  : document.getElementById("imgSC300"),
+  750  : document.getElementById("imgSC750"),
+  1000 : document.getElementById("imgSC1000"),
+  1500 : document.getElementById("imgSC1500"),
+};
+
+
+startBtn.onclick = ()=>startGame();
+restartBtn.onclick = ()=>startGame();
+
+function startGame(){
+  running=true;
+  startBtn.style.display="none";
+  restartBtn.style.display="none";
+  score=0; time=0;
+  player={x:400,y:250,hp:100,atkAnim:0};
+  enemies=[]; scs=[]; keys={}; bullets=[]; healItem = null;
+}
+
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+function spawnSC(){
+  const v=SC_VALUES[Math.floor(Math.random()*SC_VALUES.length)];
+  //scs.push({x:Math.random()*760+20,y:Math.random()*460+20,val:v});
+  scs.push({
+  x: Math.random()*760 + 20,
+  y: Math.random()*460 + 20,
+  val: v,
+  life: SC_LIFETIME
+});
+}
+/*
+function spawnEnemy(){
+  //enemies.push({x:Math.random()*760+20,y:Math.random()*460+20,life:600});
+  enemies.push({
+  x: Math.random()*760+20,
+  y: Math.random()*460+20,
+  life: 600,
+  vx: Math.random()*2 - 1,
+  vy: Math.random()*2 - 1
+});
+}
+*/
+function spawnEnemy() {
+  const typeRand = Math.random();
+  let type = "normal";
+
+  if (typeRand < 0.6) type = "normal";
+  else if (typeRand < 0.85) type = "fast";
+  else type = "shooter";
+
+  const baseSpeed = {
+    normal: 1,
+    fast: 2.2,
+    shooter: 0.3
+  };
+
+  enemies.push({
+    type,
+    x: Math.random() * 760 + 20,
+    y: Math.random() * 460 + 20,
+    life: 600,
+    vx: (Math.random() * 2 - 1) * baseSpeed[type],
+    vy: (Math.random() * 2 - 1) * baseSpeed[type],
+    fireCooldown: 0
+  });
+}
+//update--------------------------------------------------------------------
+function update(){
+  if (!running || !player) return;
+
+  time++;
+  if(time%120===0) spawnSC();
+  if(score <= 10000){if(time%180===0) spawnEnemy();}
+  else if(score <= 20000){if(time%120===0) spawnEnemy();}
+  else{if(time%80===0) spawnEnemy();}
+
+  const speed=3;
+  if(keys["w"]||keys["W"]||keys["ArrowUp"]) player.y-=speed;
+  if(keys["s"]||keys["S"]||keys["ArrowDown"]) player.y+=speed;
+  if(keys["a"]||keys["A"]||keys["ArrowLeft"]) player.x-=speed;
+  if(keys["d"]||keys["D"]||keys["ArrowRight"]) player.x+=speed;
+
+  //防止跑出地圖
+  const r = 10;
+  player.x = Math.max(r, Math.min(canvas.width - r, player.x));
+  player.y = Math.max(r, Math.min(canvas.height - r, player.y));
+/*
+  enemies.forEach(e=>{
+    //e.x+=Math.random()*2-1;
+    //e.y+=Math.random()*2-1;
+    e.life--;
+
+    const dx=e.x-player.x, dy=e.y-player.y;
+    const dist=Math.hypot(dx,dy);
+
+    //敵人隨機移動偶爾換方向
+    e.x += e.vx;
+    e.y += e.vy;
+
+    if (Math.random() < 0.02) {
+      e.vx = Math.random()*2 - 1;
+      e.vy = Math.random()*2 - 1;
+    }
+
+    if(dist<30){
+      player.atkAnim=5;
+      e.life=0;
+      player.hp += 1;
+      return false;
+    }
+    // 發射頻率隨時間變快（最快 30 幀一次）
+    const fireRate = Math.max(30, 120 - Math.floor(time / 600) * 20);
+
+    if (time % fireRate === 0) {
+      const angle = Math.atan2(player.y - e.y, player.x - e.x);
+      bullets.push({
+          x: e.x,
+          y: e.y,
+          vx: Math.cos(angle) * 4,
+          vy: Math.sin(angle) * 4,
+          life: 120
+        });
+      }
+    });
+*/  
+    enemies.forEach(e => {
+      // 1. 移動
+      e.x += e.vx;
+      e.y += e.vy;
+      const turnRate = e.type === "fast" ? 0.05 : 0.02;
+      if(Math.random() < turnRate){
+        const speed = Math.hypot(e.vx, e.vy) || 1;
+        const ang = Math.random() * Math.PI * 2;
+        e.vx = Math.cos(ang) * speed;
+        e.vy = Math.sin(ang) * speed;
+      }
+
+      // 2. 邊界反彈
+      if(e.x < 10 || e.x > canvas.width-10) e.vx*=-1;
+      if(e.y < 10 || e.y > canvas.height-10) e.vy*=-1;
+
+      // 3. 生命扣除
+      e.life--;
+
+      // 4. 近戰判定
+      const dx = e.x - player.x;
+      const dy = e.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if(dist < 30){
+        player.atkAnim = 5;
+        e.life = 0;
+      }
+
+      // 5. 射擊
+      e.fireCooldown--;
+      const baseFireRate = { normal:120, fast:80, shooter:30 };
+      if(e.fireCooldown <= 0){
+        const ang = Math.atan2(player.y - e.y, player.x - e.x);
+        bullets.push({
+          x:e.x, y:e.y,
+          vx:Math.cos(ang)*4,
+          vy:Math.sin(ang)*4,
+          life:180
+        });
+        const timeFactor = Math.max(1, 1 - time/6000);
+        e.fireCooldown = baseFireRate[e.type] * timeFactor;
+      }
+    });
+
+    // 6. 過濾死亡敵人
+    enemies = enemies.filter(e => e.life > 0);
+
+    bullets = bullets.filter(b => {
+    b.x += b.vx;
+    b.y += b.vy;
+    b.life--;
+
+    if (Math.hypot(b.x - player.x, b.y - player.y) < 12) {
+      player.hp -= 5;
+      damageFlash = 5;
+      return false;
+    }
+
+    return b.life > 0;
+  });
+
+  scs = scs.filter(s => {
+    s.life--;
+    if (Math.hypot(s.x - player.x, s.y - player.y) < 20) {
+      score += s.val;
+      scFlash = 5; // 第 4 點用
+      return false;
+    }
+    return s.life > 0;
+  });
+
+  enemies=enemies.filter(e=>e.life>0);
+
+  if(player.atkAnim>0) player.atkAnim--;
+
+  if(player.hp<=0){
+    running=false;
+    restartBtn.style.display="inline";
+    alert("遊戲結束！得分："+score);
+  }
+
+  hpUI.textContent="HP:"+player.hp;
+  scoreUI.textContent="Score:"+score;
+
+  if (!healItem && Math.random() < 0.002) {
+    const fromLeft = Math.random() < 0.5;
+    healItem = {
+      x: fromLeft ? -20 : canvas.width + 20,
+      y: Math.random() * canvas.height,
+      vx: fromLeft ? 3 : -3
+    };
+  }
+  if (healItem) {
+    healItem.x += healItem.vx;
+
+    if (Math.hypot(healItem.x - player.x, healItem.y - player.y) < 18) {
+      player.hp = Math.min(100, player.hp + 10);
+      healItem = null;
+    }
+
+    if (healItem && (healItem.x < -30 || healItem.x > canvas.width + 30)) {
+      healItem = null;
+    }
+  }
+}
+//--------------------------------------------------------------
+//draw----------------------------------------------------------
+function draw(){
+  ctx.clearRect(0,0,800,500);
+  if (!player) return;
+  if(damageFlash>0){
+    canvas.classList.add("flash");
+    damageFlash--;
+  } else canvas.classList.remove("flash");
+
+  
+  scs.forEach(s=>{
+/*
+    ctx.fillStyle="#0f0";
+    ctx.fillRect(s.x-5,s.y-5,10,10);
+    ctx.fillText(s.val,s.x-8,s.y-10);
+*/
+    const img = scImages[s.val];
+    if (img) {
+      ctx.drawImage(img, s.x - 12, s.y - 12, 24, 24);
+    }
+  });
+/*
+  enemies.forEach(e=>{
+    ctx.fillStyle="red";
+    ctx.beginPath();
+    ctx.arc(e.x,e.y,10,0,Math.PI*2);
+    ctx.fill();
+  });
+*/
+  enemies.forEach(e => {
+    /*
+    ctx.fillStyle =
+      e.type === "fast" ? "purple" :
+      e.type === "shooter" ? "red" :
+      "orange";
+
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    */
+    ctx.drawImage(
+      imgEnemy,
+      e.x - 16,
+      e.y - 16,
+      32,
+      32
+    );
+  });
+/*
+  ctx.fillStyle="cyan";
+  ctx.beginPath();
+  ctx.arc(player.x,player.y,10,0,Math.PI*2);
+  ctx.fill();
+*/
+  ctx.drawImage(
+    imgPlayer,
+    player.x - 16,
+    player.y - 16,
+    32,
+    32
+  );
+
+  if(player.atkAnim>0){
+    ctx.strokeStyle="yellow";
+    ctx.beginPath();
+    ctx.arc(player.x,player.y,40,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  bullets.forEach(b => {
+    ctx.fillStyle = "red";
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  if (healItem) {
+/*    
+    ctx.fillStyle = "lime";
+    ctx.beginPath();
+    ctx.arc(healItem.x, healItem.y, 8, 0, Math.PI*2);
+    ctx.fill();
+*/ 
+    ctx.drawImage(imgHeal, healItem.x - 12, healItem.y - 12, 24, 24);
+  }
+  if (scFlash > 0) {
+    ctx.fillStyle = "rgba(0,255,0,0.15)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    scFlash--;
+  }
+}
+//-------------------------------------------------------
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
