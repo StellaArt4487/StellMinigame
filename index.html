@@ -3,7 +3,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>簡易倖存者遊戲 - 強化版</title>
+<title>Mini game</title>
 <style>
 body { margin:0; background:#111; color:#fff; font-family:sans-serif; text-align:center; }
 canvas { background:#222; display:block; margin:0 auto; }
@@ -129,13 +129,13 @@ function spawnEnemy() {
   let type = "normal";
 
   if (typeRand < 0.6) type = "normal";
-  else if (typeRand < 0.85) type = "fast";
+  else if (typeRand < 0.87) type = "fast";
   else type = "shooter";
 
   const baseSpeed = {
     normal: 1,
     fast: 2.2,
-    shooter: 0.3
+    shooter: 3.3
   };
 
   enemies.push({
